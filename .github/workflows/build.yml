@@ -69,17 +69,16 @@ jobs:
           if [ "${{ matrix.os }}" = "windows" ]; then
             cp "$bin_path" dist/flat/$base_name.exe
             find zig-out -name '*.pdb' -exec cp {} dist/flat/$base_name.pdb \;
+            cp "$bin_path" dist/$base_name.exe
           else
             cp "$bin_path" dist/flat/$base_name
           fi
-
-          cd dist && tar -czf $base_name.tar.gz $base_name
 
       - uses: actions/upload-artifact@v4
         with:
           name: regret-v${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.variant }}
           path: |
-            dist/*.tar.gz
+            !dist/*.tar.gz
             dist/flat/*
           if-no-files-found: error
 
