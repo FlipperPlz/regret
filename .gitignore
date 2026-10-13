@@ -1,0 +1,4 @@
+.zig-cache
+.idea
+zig-pkg
+.patches_applied

@@ -1,3 +1,4 @@
 [submodule "lib/zeit"]
 	path = lib/zeit
 	url = https://github.com/rockorager/zeit
+	branch = main
