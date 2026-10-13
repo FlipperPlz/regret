@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           - { target: x86_64-linux-gnu,   os: linux,   variant: stripped,   strip: true }
-          - { target: x86_64-linux-gnu,   os: linux,   variant: unstripped, strip: true }
+          - { target: x86_64-linux-gnu,   os: linux,   variant: unstripped, strip: false }
           - { target: x86_64-windows-gnu, os: windows, variant: pdb,        strip: false }
     steps:
       - uses: actions/checkout@v4
@@ -26,10 +26,10 @@ jobs:
         run: echo "version=$(tr -d ' \r\n' < .version)" >> "$GITHUB_OUTPUT"
 
       - name: Check tag matches VERSION
-        if: startsWith(github.ref, 'refs/tags/v') # Fixed github.reg -> github.ref
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          if [ "${GITHUB_REF_NAME#v}" != "${{ steps.ver.outputs.version }}" ]; then # Fixed them -> then
-            echo "Tag ${GITHUB_REF_NAME} does not match VERSION ${{ steps.ver.outputs.version }}" # Added missing closing quote
+          if [ "${GITHUB_REF_NAME#v}" != "${{ steps.ver.outputs.version }}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match VERSION ${{ steps.ver.outputs.version }}"
             exit 1
           fi
 
@@ -45,33 +45,37 @@ jobs:
           -Dstrip=${{ matrix.strip }}
 
       - name: Package
+        env:
+          BASE: regret-v${{ steps.ver.outputs.version }}
+          OS: ${{ matrix.os }}
+          VARIANT: ${{ matrix.variant }}
         run: |
           mkdir -p dist
-          
+
           if [ "$OS" = "windows" ]; then
             exe_path=$(find zig-out -type f -name 'regret*.exe' | head -n 1)
             pdb_path=$(find zig-out -type f -name 'regret*.pdb' | head -n 1)
-          
+
             if [ -z "$exe_path" ] || [ -z "$pdb_path" ]; then
               echo "Error: Could not find .exe and/or .pdb in zig-out/"
               find zig-out
               exit 1
             fi
-          
+
             cp "$exe_path" "dist/${BASE}.exe"
             cp "$pdb_path" "dist/${BASE}.pdb"
           else
             bin_path=$(find zig-out -type f -name 'regret' | head -n 1)
-          
+
             if [ -z "$bin_path" ]; then
               echo "Error: Could not find compiled binary in zig-out/"
               find zig-out
               exit 1
             fi
-          
+
             cp "$bin_path" "dist/${BASE}-${OS}-${VARIANT}"
           fi
-          
+
           ls -l dist
 
       - uses: actions/upload-artifact@v7
