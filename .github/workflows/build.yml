@@ -47,8 +47,7 @@ jobs:
       - name: Package
         run: |
           base_name=regret-v${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.variant }}
-          mkdir -p dist/$base_name
-          mkdir -p dist/flat
+          mkdir -p dist/pkg
           
           bin_path=$(find zig-out -name 'regret*' -type f ! -name '*.pdb' | head -n 1)
           if [ -z "$bin_path" ]; then
@@ -58,28 +57,26 @@ jobs:
           fi
           
           if [ "${{ matrix.os }}" = "windows" ]; then
-            cp "$bin_path" dist/$base_name/$base_name.exe
-            mkdir -p dist/$base_name/pdb
-            find zig-out -name '*.pdb' -exec cp {} dist/$base_name/pdb/ \;
-            test -n "$(ls -A dist/$base_name/pdb)" || { echo "no PDBs found"; exit 1; }
+            cp "$bin_path" dist/pkg/regret.exe
+            find zig-out -name '*.pdb' -exec cp {} dist/pkg/ \;
           
-            cp "$bin_path" dist/flat/$base_name.exe
-            find zig-out -name '*.pdb' -exec cp {} dist/flat/$base_name.pdb \;
-          
-            standalone_name=regret-v${{ steps.ver.outputs.version }}-${{ matrix.os }}.exe
-            cp "$bin_path" dist/$standalone_name
+            cd dist/pkg
+            zip -r ../$base_name.zip *
+            cd ../..
           else
-            cp "$bin_path" dist/$base_name/$base_name
-            cp "$bin_path" dist/flat/$base_name
+            cp "$bin_path" dist/pkg/regret
           
-            cp "$bin_path" dist/flat/$base_name
+            cd dist/pkg
+            tar -czf ../$base_name.tar.gz *
+            cd ../..
           fi
+          
+          rm -rf dist/pkg
 
       - uses: actions/upload-artifact@v4
         with:
           name: regret-v${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.variant }}
           path: |
-            !dist/*.tar.gz
             dist/*
           if-no-files-found: error
 
