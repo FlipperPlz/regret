@@ -77,7 +77,7 @@ pub fn build(b: *std.Build) void {
     reset_submodules.has_side_effects = true;
     reset_submodules.stdio = .inherit;
 
-    const drop_marker = b.addSystemCommand(&.{ "git", "clean", "-f", "-x", "--", patch_marker });
+    const drop_marker = b.addSystemCommand(&.{ "git", "clean", "-f", "-X", "--", patch_marker });
     drop_marker.setCwd(.{ .cwd_relative = root });
     drop_marker.has_side_effects = true;
     drop_marker.step.dependOn(&reset_submodules.step);
@@ -90,7 +90,7 @@ pub fn build(b: *std.Build) void {
     sync_step.dependOn(&sync.step);
 // start clean repo section --------------------------------------------------------------------------------------------
     const rm_outputs = b.addSystemCommand(&.{
-        "git", "-C", root, "clean", "-f", "-d", "-x", "--", "zig-out", "zig-pkg", ".zig-cache",
+        "git", "-C", root, "clean", "-f", "-d", "-X", "--", "zig-out", "zig-pkg", ".zig-cache",
     });
     rm_outputs.setCwd(.{ .cwd_relative = root });
     rm_outputs.has_side_effects = true;
