@@ -19,6 +19,8 @@ jobs:
           - { target: x86_64-windows-gnu, os: windows, variant: pdb,        strip: false }
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - id: ver
         run: echo "version=$(tr -d ' \r\n' < .version)" >> "$GITHUB_OUTPUT"

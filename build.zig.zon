@@ -1,6 +1,6 @@
 .{
     .name = .regret,
-    .version = "0.0.2",
+    .version = "0.0.1",
     .fingerprint = 0x189cac176657b946,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
