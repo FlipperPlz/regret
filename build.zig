@@ -172,7 +172,7 @@ const Patches = struct {
             .{ .inherit_stdio = true },
         );
 
-        const drop_marker = addGit(b, &.{ "clean", "-f", "-X", "--", marker }, .{});
+        const drop_marker = addGit(b, &.{ "clean", "-f", "-x", "--", marker }, .{});
         drop_marker.step.dependOn(&reset_submodules.step);
 
         const step = b.step("clean_patches", "Reset submodules to pristine state and clear the patch marker");
