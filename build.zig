@@ -1,24 +1,40 @@
 const std = @import("std");
 const zon = @import("build.zig.zon");
 
-pub fn build(b: *std.Build) void {
+const Step = std.Build.Step;
+
+const version_file = ".version";
+const zon_file = "build.zig.zon";
+
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const strip = b.option(bool, "strip", "Omit debug symbols") orelse false;
 
-    const args_dep = b.dependency("args", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    const exe = addExe(b, target, optimize, strip);
+    b.installArtifact(exe);
 
-    const zeit_dep = b.dependency("zeit", .{
-        .target = target,
-        .optimize = optimize
-    });
+    if (Patches.needsSetup(b)) exe.step.dependOn(try Patches.addSetup(b));
 
+    const warn_build = try SyncVersion.create(b, "warn_version_build", .warn);
+    exe.step.dependOn(&warn_build.step);
+
+    const clean_patches = Patches.addCleanStep(b);
+    const sync_version = try addVersionSteps(b);
+    addCleanStep(b, &.{ clean_patches, sync_version });
+
+    try addRunStep(b, exe);
+    addTestStep(b, exe);
+}
+
+fn addExe(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    strip: bool,
+) *Step.Compile {
     const build_opts = b.addOptions();
     build_opts.addOption([]const u8, "version", zon.version);
-
-    const strip = b.option(bool, "strip", "Omit debug symbols") orelse false;
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -26,183 +42,260 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .strip = strip,
         .imports = &.{
-            .{ .name = "args", .module = args_dep.module("args") },
-            .{ .name = "zeit", .module = zeit_dep.module("zeit") },
+            .{ .name = "args", .module = depModule(b, "args", target, optimize) },
+            .{ .name = "zeit", .module = depModule(b, "zeit", target, optimize) },
         },
     });
     exe_mod.addOptions("build_options", build_opts);
 
-    const exe = b.addExecutable(.{
+    return b.addExecutable(.{
         .name = "regret",
         .root_module = exe_mod,
     });
+}
 
+fn depModule(
+    b: *std.Build,
+    name: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    const dep = b.dependency(name, .{ .target = target, .optimize = optimize });
+    return dep.module(name);
+}
 
-// Start first time setup section --------------------------------------------------------------------------------------
-    const patch_marker = ".patches_applied";
-    const root = b.pathFromRoot(".");
-
-    const needs_setup = blk: {
-        b.build_root.handle.access(b.graph.io, patch_marker, .{}) catch {
-            break :blk true;
-        };
-        break :blk false;
-    };
-
-    const patch_zeit = b.addSystemCommand(&.{
-        "git", "-C", root, "apply",
-        "--ignore-whitespace", "--directory=lib/zeit",
-        "patches/zeit-fix_timezone_parser.patch",
-    });
-    patch_zeit.setCwd(.{ .cwd_relative = root });
-    patch_zeit.has_side_effects = true;
-
-    const write_marker = b.addUpdateSourceFiles();
-    write_marker.addBytesToSource("DO NOT REMOVE UNLESS YOU KNOW WHAT YOUR DOING.\n", patch_marker);
-    write_marker.step.dependOn(&patch_zeit.step);
-
-    const say_patching = addPrintStep(b, "Applying zeit timezone patch...");
-    patch_zeit.step.dependOn(say_patching);
-
-    const say_done = addPrintStep(b, "Setup complete.");
-    say_done.dependOn(&write_marker.step);
-
-    if (needs_setup) exe.step.dependOn(say_done);
-
-// Start clean patches section -----------------------------------------------------------------------------------------
-    const reset_submodules = b.addSystemCommand(&.{
-        "git", "submodule", "update", "--init", "--recursive", "--force",
-    });
-    reset_submodules.setCwd(.{ .cwd_relative = root });
-    reset_submodules.has_side_effects = true;
-    reset_submodules.stdio = .inherit;
-
-    const drop_marker = b.addSystemCommand(&.{ "git", "clean", "-f", "-X", "--", patch_marker });
-    drop_marker.setCwd(.{ .cwd_relative = root });
-    drop_marker.has_side_effects = true;
-    drop_marker.step.dependOn(&reset_submodules.step);
-
-    const clean_patches = b.step("clean_patches", "Reset submodules to pristine state and clear the patch marker");
-    clean_patches.dependOn(&drop_marker.step);
-// start sync version section ------------------------------------------------------------------------------------------
-    const sync = SyncVersion.create(b, "synchronize_version", false, ".version", "build.zig.zon");
-    const sync_step = b.step("synchronize_version", "Sync .version in build.zig.zon files from VERSION");
+fn addVersionSteps(b: *std.Build) !*Step {
+    const sync = try SyncVersion.create(b, "sync_version", .sync);
+    const sync_step = b.step("sync_version", "Sync version in " ++ zon_file ++ " from " ++ version_file);
     sync_step.dependOn(&sync.step);
-// start clean repo section --------------------------------------------------------------------------------------------
-    const rm_outputs = b.addSystemCommand(&.{
-        "git", "-C", root, "clean", "-f", "-d", "-X", "--", "zig-out", "zig-pkg", ".zig-cache",
-    });
-    rm_outputs.setCwd(.{ .cwd_relative = root });
-    rm_outputs.has_side_effects = true;
-    rm_outputs.stdio = .inherit;
-    rm_outputs.step.dependOn(clean_patches);
-    rm_outputs.step.dependOn(sync_step);
-    const clean_step = b.step("clean", "Remove zig-out, zig-pkg and .zig-cache, and run clean_patches");
-    clean_step.dependOn(&rm_outputs.step);
 
-// start remaining steps section ---------------------------------------------------------------------------------------
+    const desync = try DesyncVersion.create(b, "desync_version", zon.version);
+    const desync_step = b.step("desync_version", "Reset " ++ version_file ++ " to the version in " ++ zon_file);
+    desync_step.dependOn(&desync.step);
 
-    b.installArtifact(exe);
+    return sync_step;
+}
+
+fn addCleanStep(b: *std.Build, deps: []const *Step) void {
+    const rm_outputs = addGit(
+        b,
+        &.{ "clean", "-f", "-d", "-x", "--", "zig-out", "zig-pkg", ".zig-cache" },
+        .{ .inherit_stdio = true },
+    );
+    for (deps) |dep| rm_outputs.step.dependOn(dep);
+
+    const clean = b.step("clean", "Reset submodules to pristine state, clear the patch marker, remove zig temp dirs");
+    clean.dependOn(&rm_outputs.step);
+}
+
+fn addRunStep(b: *std.Build, exe: *Step.Compile) !void {
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| run_cmd.addArgs(args);
+
+    const warn = try SyncVersion.create(b, "warn_version_run", .warn);
+    warn.step.dependOn(&run_cmd.step);
 
     const run_step = b.step("run", "Run the app");
-
-    const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
+    run_step.dependOn(&warn.step);
+}
 
-    run_cmd.step.dependOn(b.getInstallStep());
-
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
-    const exe_tests = b.addTest(.{
-        .root_module = exe.root_module,
-    });
-
-    const run_exe_tests = b.addRunArtifact(exe_tests);
+fn addTestStep(b: *std.Build, exe: *Step.Compile) void {
+    const exe_tests = b.addTest(.{ .root_module = exe.root_module });
 
     const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_exe_tests.step);
+    test_step.dependOn(&b.addRunArtifact(exe_tests).step);
 }
 
-fn addPrintStep(b: *std.Build, comptime msg: []const u8) *std.Build.Step {
-    const S = struct {
-        fn make(_: *std.Build.Step, _: std.Build.Step.MakeOptions) anyerror!void {
-            std.debug.print(msg ++ "\n", .{});
-        }
-    };
-    const step = b.allocator.create(std.Build.Step) catch @panic("OOM");
-    step.* = .init(.{
+const GitOptions = struct {
+    inherit_stdio: bool = false,
+};
+
+fn addGit(b: *std.Build, args: []const []const u8, opts: GitOptions) *Step.Run {
+    const run = b.addSystemCommand(&.{"git"});
+    run.addArgs(args);
+    run.setCwd(.{ .cwd_relative = b.pathFromRoot(".") });
+    run.has_side_effects = true;
+    if (opts.inherit_stdio) run.stdio = .inherit;
+    return run;
+}
+
+fn customStep(b: *std.Build, name: []const u8, make: Step.MakeFn) Step {
+    return .init(.{
         .id = .custom,
-        .name = "print",
+        .name = name,
         .owner = b,
-        .makeFn = S.make,
+        .makeFn = make,
     });
-    return step;
 }
 
-const SyncVersion = struct {
-    step: std.Build.Step,
-    check: bool,
-    version_file: []const u8,
-    zon_file: []const u8,
+fn readVersionFile(b: *std.Build) ![]const u8 {
+    const raw = try b.build_root.handle.readFileAlloc(b.graph.io, version_file, b.allocator, .limited(1024));
+    return std.mem.trim(u8, raw, " \t\r\n");
+}
 
-    fn create(
-        b: *std.Build,
-        name: []const u8,
-        check: bool,
-        version_file: []const u8,
-        zon_file: []const u8,
-    ) *SyncVersion {
-        const self = b.allocator.create(SyncVersion) catch @panic("OOM");
+const Patches = struct {
+    const marker = ".patches_applied";
+    const zeit_patch = "patches/zeit-fix_timezone_parser.patch";
+
+    fn needsSetup(b: *std.Build) bool {
+        b.build_root.handle.access(b.graph.io, marker, .{}) catch return true;
+        return false;
+    }
+
+    fn addSetup(b: *std.Build) !*Step {
+        const say_patching = try PrintStep.create(b, "Applying zeit timezone patch...");
+
+        const apply = addGit(b, &.{
+            "apply",
+            "--ignore-whitespace",
+            "--directory=lib/zeit",
+            zeit_patch,
+        }, .{});
+        apply.step.dependOn(&say_patching.step);
+
+        const write_marker = b.addUpdateSourceFiles();
+        write_marker.addBytesToSource("DO NOT REMOVE UNLESS YOU KNOW WHAT YOU'RE DOING.\n", marker);
+        write_marker.step.dependOn(&apply.step);
+
+        const say_done = try PrintStep.create(b, "Setup complete.");
+        say_done.step.dependOn(&write_marker.step);
+
+        return &say_done.step;
+    }
+
+    fn addCleanStep(b: *std.Build) *Step {
+        const reset_submodules = addGit(
+            b,
+            &.{ "submodule", "update", "--init", "--recursive", "--force" },
+            .{ .inherit_stdio = true },
+        );
+
+        const drop_marker = addGit(b, &.{ "clean", "-f", "-X", "--", marker }, .{});
+        drop_marker.step.dependOn(&reset_submodules.step);
+
+        const step = b.step("clean_patches", "Reset submodules to pristine state and clear the patch marker");
+        step.dependOn(&drop_marker.step);
+        return step;
+    }
+};
+
+const PrintStep = struct {
+    step: Step,
+    msg: []const u8,
+
+    fn create(b: *std.Build, msg: []const u8) !*PrintStep {
+        const self = try b.allocator.create(PrintStep);
         self.* = .{
-            .step = .init(.{
-                .id = .custom,
-                .name = name,
-                .owner = b,
-                .makeFn = make,
-            }),
-            .check = check,
-            .version_file = version_file,
-            .zon_file = zon_file,
+            .step = customStep(b, "print", make),
+            .msg = b.dupe(msg),
         };
         return self;
     }
 
-    fn make(step: *std.Build.Step, options: std.Build.Step.MakeOptions) !void {
-        _ = options;
+    fn make(step: *Step, _: Step.MakeOptions) !void {
+        const self: *PrintStep = @fieldParentPtr("step", step);
+        std.debug.print("{s}\n", .{self.msg});
+    }
+};
+
+const SyncVersion = struct {
+    pub const Mode = enum { sync, check, warn };
+
+    step: Step,
+    mode: Mode,
+
+    fn create(b: *std.Build, name: []const u8, mode: Mode) !*SyncVersion {
+        const self = try b.allocator.create(SyncVersion);
+        self.* = .{
+            .step = customStep(b, name, make),
+            .mode = mode,
+        };
+        return self;
+    }
+
+    fn make(step: *Step, _: Step.MakeOptions) !void {
         const self: *SyncVersion = @fieldParentPtr("step", step);
         const b = step.owner;
         const io = b.graph.io;
         const dir = b.build_root.handle;
 
-        const raw = dir.readFileAlloc(io, self.version_file, b.allocator, .limited(1024)) catch |err|
-            return step.fail("cannot read {s}: {s}", .{ self.version_file, @errorName(err) });
-        const version = std.mem.trim(u8, raw, " \t\r\n");
+        const version = readVersionFile(b) catch |err| return self.cannotRead(version_file, err);
 
-        var drift = false;
-        const src = dir.readFileAlloc(io, self.zon_file, b.allocator, .limited(1 << 20)) catch |err| switch (err) {
+        const src = dir.readFileAlloc(io, zon_file, b.allocator, .limited(1 << 20)) catch |err| switch (err) {
             error.FileNotFound => return,
-            else => return step.fail("cannot read {s}: {s}", .{ self.zon_file, @errorName(err) }),
+            else => return self.cannotRead(zon_file, err),
         };
 
-        const key = std.mem.indexOf(u8, src, ".version") orelse return;
-        const q1 = std.mem.indexOfScalarPos(u8, src, key, '"') orelse return;
-        const q2 = std.mem.indexOfScalarPos(u8, src, q1 + 1, '"') orelse return;
+        const loc = ZonVersion.find(src) orelse return;
+        const zon_version = src[loc.start..loc.end];
+        if (std.mem.eql(u8, zon_version, version)) return;
 
-        if (std.mem.eql(u8, src[q1 + 1 .. q2], version)) return;
-
-        if (self.check) {
-            std.log.err("{s} is out of sync with VERSION ({s})", .{ self.zon_file, version });
-            drift = true;
-            return;
+        switch (self.mode) {
+            .warn => {
+                std.debug.print(
+                    "warning: {s} has version {s} but {s} has {s}. Run `zig build sync_version`.\n",
+                    .{ zon_file, zon_version, version_file, version },
+                );
+                return;
+            },
+            .check => return step.fail(
+                "{s} has version {s} but {s} has {s}; run zig build sync_version",
+                .{ zon_file, zon_version, version_file, version },
+            ),
+            .sync => {},
         }
+        const out = std.mem.concat(b.allocator, u8, &.{ src[0..loc.start], version, src[loc.end..] }) catch |err|
+            return step.fail("OOM while synchronizing versions: {s}", .{@errorName(err)});
 
-        const out = try std.mem.concat(b.allocator, u8, &.{ src[0 .. q1 + 1], version, src[q2..] });
-        dir.writeFile(io, .{ .sub_path = self.zon_file, .data = out }) catch |err|
-            return step.fail("cannot write {s}: {s}", .{ self.zon_file, @errorName(err) });
-        std.log.info("{s} -> {s}", .{ self.zon_file, version });
+        dir.writeFile(io, .{ .sub_path = zon_file, .data = out }) catch |err|
+            return step.fail("cannot write {s}: {s}", .{ zon_file, @errorName(err) });
 
-        if (drift) return step.fail("zon versions differ from VERSION; run `zig build synchronize_version`", .{});
+        std.log.info("{s} -> {s}", .{ zon_file, version });
+    }
+
+    fn cannotRead(self: *SyncVersion, path: []const u8, err: anyerror) !void {
+        if (self.mode == .warn) return;
+        return self.step.fail("cannot read {s}: {s}", .{ path, @errorName(err) });
+    }
+};
+
+const ZonVersion = struct {
+    start: usize,
+    end: usize,
+
+    fn find(src: []const u8) ?ZonVersion {
+        const key = std.mem.indexOf(u8, src, ".version") orelse return null;
+        const open = std.mem.indexOfScalarPos(u8, src, key, '"') orelse return null;
+        const close = std.mem.indexOfScalarPos(u8, src, open + 1, '"') orelse return null;
+        return .{ .start = open + 1, .end = close };
+    }
+};
+
+const DesyncVersion = struct {
+    step: Step,
+    zon_version: []const u8,
+
+    fn create(b: *std.Build, name: []const u8, zon_version: []const u8) !*DesyncVersion {
+        const self = try b.allocator.create(DesyncVersion);
+        self.* = .{
+            .step = customStep(b, name, make),
+            .zon_version = zon_version,
+        };
+        return self;
+    }
+
+    fn make(step: *Step, _: Step.MakeOptions) !void {
+        const self: *DesyncVersion = @fieldParentPtr("step", step);
+        const b = step.owner;
+        if (readVersionFile(b)) |current| {
+            if (std.mem.eql(u8, current, self.zon_version)) return;
+        } else |_| {}
+        const out = std.fmt.allocPrint(b.allocator, "{s}\n", .{self.zon_version}) catch |err|
+            return step.fail("OOM writing version file: {s}", .{@errorName(err)});
+        b.build_root.handle.writeFile(b.graph.io, .{ .sub_path = version_file, .data = out }) catch |err|
+            return step.fail("cannot write {s}: {s}", .{ version_file, @errorName(err) });
+        std.log.info("{s} -> {s} (from {s})", .{ version_file, self.zon_version, zon_file });
     }
 };
