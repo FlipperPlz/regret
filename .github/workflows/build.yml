@@ -49,21 +49,28 @@ jobs:
           base_name=regret-v${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.variant }}
           mkdir -p dist/$base_name
           
+          bin_path=$(find zig-out -name 'regret*' -type f ! -name '*.pdb' | head -n 1)
+          if [ -z "$bin_path" ]; then
+            echo "Error: Could not find compiled binary in zig-out/"
+            find zig-out
+            exit 1
+          fi
+          
           if [ "${{ matrix.os }}" = "windows" ]; then
-            cp zig-out/bin/regret dist/$base_name/$base_name.exe
+            cp "$bin_path" dist/$base_name/$base_name.exe
             mkdir -p dist/$base_name/pdb
             find zig-out -name '*.pdb' -exec cp {} dist/$base_name/pdb/ \;
             test -n "$(ls -A dist/$base_name/pdb)" || { echo "no PDBs found"; exit 1; }
           else
-            cp zig-out/bin/regret dist/$base_name/$base_name
+            cp "$bin_path" dist/$base_name/$base_name
           fi
 
           mkdir -p dist/flat
           if [ "${{ matrix.os }}" = "windows" ]; then
-            cp zig-out/bin/regret dist/flat/$base_name.exe
+            cp "$bin_path" dist/flat/$base_name.exe
             find zig-out -name '*.pdb' -exec cp {} dist/flat/$base_name.pdb \;
           else
-            cp zig-out/bin/regret dist/flat/$base_name
+            cp "$bin_path" dist/flat/$base_name
           fi
 
           cd dist && tar -czf $base_name.tar.gz $base_name
