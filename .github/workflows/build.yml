@@ -1,0 +1,90 @@
+name: build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-linux-gnu,   os: linux,   variant: stripped,   strip: true }
+          - { target: x86_64-linux-gnu,   os: linux,   variant: unstripped, strip: true }
+          - { target: x86_64-windows-gnu, os: windows, variant: pdb,        strip: false }
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: ver
+        run: echo "version=$(tr -d ' \r\n' < .version)" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag matches VERSION
+        if: startsWith(github.ref, 'refs/tags/v') # Fixed github.reg -> github.ref
+        run: |
+          if [ "${GITHUB_REF_NAME#v}" != "${{ steps.ver.outputs.version }}" ]; then # Fixed them -> then
+            echo "Tag ${GITHUB_REF_NAME} does not match VERSION ${{ steps.ver.outputs.version }}" # Added missing closing quote
+            exit 1
+          fi
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Build
+        run: >
+          zig build
+          -Dtarget=${{ matrix.target }}
+          -DOptimize=ReleaseSafe
+          -Dstrip=${{ matrix.strip }}
+
+      - name: Package
+        run: |
+          base_name=regret-v${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.variant }}
+          mkdir -p dist/$base_name
+          
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            cp zig-out/paramlsp dist/$base_name/$base_name.exe
+            mkdir -p dist/$base_name/pdb
+            find zig-out -name '*.pdb' -exec cp {} dist/$base_name/pdb/ \;
+            test -n "$(ls -A dist/$base_name/pdb)" || { echo "no PDBs found"; exit 1; }
+          else
+            cp zig-out/paramlsp dist/$base_name/$base_name
+          fi
+
+          mkdir -p dist/flat
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            cp zig-out/paramlsp dist/flat/$base_name.exe
+            find zig-out -name '*.pdb' -exec cp {} dist/flat/$base_name.pdb \;
+          else
+            cp zig-out/paramlsp dist/flat/$base_name
+          fi
+
+          cd dist && tar -czf $base_name.tar.gz $base_name
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: regret-v${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.variant }}
+          path: |
+            dist/*.tar.gz
+            dist/flat/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
