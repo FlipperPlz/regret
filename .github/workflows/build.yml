@@ -48,6 +48,7 @@ jobs:
         run: |
           base_name=regret-v${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.variant }}
           mkdir -p dist/$base_name
+          mkdir -p dist/flat
           
           bin_path=$(find zig-out -name 'regret*' -type f ! -name '*.pdb' | head -n 1)
           if [ -z "$bin_path" ]; then
@@ -61,16 +62,16 @@ jobs:
             mkdir -p dist/$base_name/pdb
             find zig-out -name '*.pdb' -exec cp {} dist/$base_name/pdb/ \;
             test -n "$(ls -A dist/$base_name/pdb)" || { echo "no PDBs found"; exit 1; }
-          else
-            cp "$bin_path" dist/$base_name/$base_name
-          fi
-
-          mkdir -p dist/flat
-          if [ "${{ matrix.os }}" = "windows" ]; then
+          
             cp "$bin_path" dist/flat/$base_name.exe
             find zig-out -name '*.pdb' -exec cp {} dist/flat/$base_name.pdb \;
-            cp "$bin_path" dist/$base_name.exe
+          
+            standalone_name=regret-v${{ steps.ver.outputs.version }}-${{ matrix.os }}.exe
+            cp "$bin_path" dist/$standalone_name
           else
+            cp "$bin_path" dist/$base_name/$base_name
+            cp "$bin_path" dist/flat/$base_name
+          
             cp "$bin_path" dist/flat/$base_name
           fi
 
@@ -79,7 +80,7 @@ jobs:
           name: regret-v${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.variant }}
           path: |
             !dist/*.tar.gz
-            dist/flat/*
+            dist/*
           if-no-files-found: error
 
   release:
