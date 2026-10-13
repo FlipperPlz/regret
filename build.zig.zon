@@ -1,0 +1,23 @@
+.{
+    .name = .regret,
+    .version = "0.0.2",
+    .fingerprint = 0x189cac176657b946,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .args = .{
+            .url = "https://github.com/muhammad-fiaz/args.zig/archive/refs/tags/0.0.8.tar.gz",
+            .hash = "args-0.0.8-8hzgbsBECgD3C0uPaFNcK9UFTZ210rWU4XIhopR8snoA",
+        },
+        .zeit = .{
+            .path = "lib/zeit"
+        }
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        // For example...
+        //"LICENSE",
+        //"README.md",
+    },
+}

@@ -1,0 +1,38 @@
+--- a/src/timezone.zig
++++ b/src/timezone.zig
+@@ -220,6 +220,13 @@
+                             const dst_start = i + 1;
+                             i = std.mem.indexOfScalarPos(u8, str, i, '>') orelse return error.InvalidPosix;
+                             dst = str[dst_start..i];
++                            if (i + 1 < str.len and str[i + 1] == ',') {
++                                // no explicit DST offset: rule starts after the comma
++                                i += 1;
++                                state = .start;
++                            } else {
++                                state = .dst_offset;
++                            }
+                         },
+                         else => {
+                             const dst_start = i;
+@@ -689,10 +696,18 @@
+             return posix.adjust(timestamp);
+         }
+ 
++        // RFC 8536 section 3.2: before the first transition (or with no
++        // transitions at all) local time uses time type 0.
++        if (self.transitions.len == 0 or self.transitions[0].ts > timestamp) {
++            const tt = &self.timetypes[0];
++            return .{
++                .designation = tt.name(),
++                .timestamp = timestamp + tt.offset,
++                .is_dst = tt.isDst(),
++            };
++        }
++
+         const transition: Transition = blk: for (self.transitions, 0..) |transition, i| {
+-            // TODO: implement what go does, which is a copy of c for how to
+-            // handle times before the first transition how to handle this
+-            if (i == 0 and transition.ts > timestamp) @panic("unimplemented. please complain to tim");
+             if (transition.ts <= timestamp) continue;
+             // we use the latest transition before ts, which is one less than
+             // our current iter
