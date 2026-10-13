@@ -41,11 +41,11 @@ pub fn format(self: Self, writer: *Io.Writer) Io.Writer.Error!void {
     try writer.print("Coin:             {s}\n", .{coin});
     try writer.print("Amount:           {d} {s}\n", .{ amount, coin });
     try writer.print("Since:            {s}\n", .{self.cli.since});
-    try writer.print("Price at date:    {f} {s} //price of 1 {s} on {s}\n", .{ Currency.of(self.since.close), fiat, coin, self.since_day });
+    try writer.print("Price at date:    {f} {s} //price of 1 {s} on {s}\n", .{ Currency.unit(self.since.close), fiat, coin, self.since_day });
     try writer.print("Value at date:    {f} {s}\n", .{ Currency.of(since_value), fiat });
-    try writer.print("Highest price:    {f} {s} //price of 1 {s} on {s}\n", .{ Currency.of(self.peak.high), fiat, coin, self.peak_day });
+    try writer.print("Highest price:    {f} {s} //price of 1 {s} on {s}\n", .{ Currency.unit(self.peak.high), fiat, coin, self.peak_day });
     try writer.print("Value at peak:    {f} {s}\n", .{ Currency.of(peak_value), fiat });
-    try writer.print("Current value:    {f} {s} (@ {f} {s})\n", .{ Currency.of(latest_value), fiat, Currency.of(self.latest.close), fiat });
+    try writer.print("Current value:    {f} {s} (@ {f} {s})\n", .{ Currency.of(latest_value), fiat, Currency.unit(self.latest.close), fiat });
     try writer.print("Missed profits:   {f} {s}\n", .{ Currency.of(peak_value - since_value), fiat });
 }
 

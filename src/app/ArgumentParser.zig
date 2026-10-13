@@ -24,7 +24,7 @@ pub fn parse(init: std.process.Init, parser: *args.ArgumentParser) !Self {
         .metavar = "COIN",
     });
     try parser.addPositional("date", .{
-        .help = "When did you buy the coins, date is interpreted as midnight in --tz (see --datefmt and --tz, Default: YYYY-MM-DD at system timezone)",
+        .help = "When did you buy the coins, date is interpreted as midnight in --tz (see --datefmt and --tz, Default: MM/DD/YYYY at system timezone)",
         .metavar = "DATE",
     });
     try parser.addPositional("fiat", .{
