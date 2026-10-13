@@ -50,20 +50,20 @@ jobs:
           mkdir -p dist/$base_name
           
           if [ "${{ matrix.os }}" = "windows" ]; then
-            cp zig-out/paramlsp dist/$base_name/$base_name.exe
+            cp zig-out/regret dist/$base_name/$base_name.exe
             mkdir -p dist/$base_name/pdb
             find zig-out -name '*.pdb' -exec cp {} dist/$base_name/pdb/ \;
             test -n "$(ls -A dist/$base_name/pdb)" || { echo "no PDBs found"; exit 1; }
           else
-            cp zig-out/paramlsp dist/$base_name/$base_name
+            cp zig-out/regret dist/$base_name/$base_name
           fi
 
           mkdir -p dist/flat
           if [ "${{ matrix.os }}" = "windows" ]; then
-            cp zig-out/paramlsp dist/flat/$base_name.exe
+            cp zig-out/regret dist/flat/$base_name.exe
             find zig-out -name '*.pdb' -exec cp {} dist/flat/$base_name.pdb \;
           else
-            cp zig-out/paramlsp dist/flat/$base_name
+            cp zig-out/regret dist/flat/$base_name
           fi
 
           cd dist && tar -czf $base_name.tar.gz $base_name
