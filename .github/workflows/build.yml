@@ -41,7 +41,7 @@ jobs:
         run: >
           zig build
           -Dtarget=${{ matrix.target }}
-          -DOptimize=ReleaseSafe
+          -Doptimize=ReleaseSafe
           -Dstrip=${{ matrix.strip }}
 
       - name: Package
